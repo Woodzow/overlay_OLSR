@@ -10,7 +10,7 @@ def encode_mantissa(seconds):
     将时间（秒）编码为 OLSR 的 8-bit 浮点格式 (Vtime/Htime)。
     算法参考 RFC 3626 Section 18.3 [cite: 1732-1737]
     格式: 高4位是 mantissa (a), 低4位是 exponent (b)
-    公式: Value = C * (1 + a/16) * 2^b
+    公式: Value = C * (1 + a/16) * 2^bm
     """
     if seconds <= 0: return 0
     value = float(seconds)
