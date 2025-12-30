@@ -1,6 +1,7 @@
 import struct
 import socket
 
+#解包整个消息，去除4字节的包头
 def parse_packet(data, addr):
     """
     拆包逻辑：将收到的二进制 data 解析为可读信息
@@ -27,8 +28,7 @@ def parse_packet(data, addr):
         # 提取 12 字节的 Message Header
         # 格式: !BBH4sBBH
         msg_header_data = data[cursor : cursor+12]
-        msg_type, vtime_byte, msg_size, orig_ip_bytes, ttl, hop, msg_seq = \
-            struct.unpack('!BBH4sBBH', msg_header_data)
+        msg_type, vtime_byte, msg_size, orig_ip_bytes, ttl, hop, msg_seq = struct.unpack('!BBH4sBBH', msg_header_data)
             
         # 将 IP 的二进制转回字符串 "192.168.x.x"
         orig_ip_str = socket.inet_ntoa(orig_ip_bytes)
@@ -37,7 +37,7 @@ def parse_packet(data, addr):
         print(f"    Size: {msg_size}, TTL: {ttl}, Seq: {msg_seq}")
         
         # --- 3. 提取 Message Body ---
-        # Body 的长度 = 整个消息长度 - 头部长度(12)
+        # Body 的长度 = 整个消息长度（msg_size） - 头部长度(12)
         body_len = msg_size - 12
         if body_len > 0:
             # 这里的 body 就是具体的 HELLO 内容 (Link Code 等)

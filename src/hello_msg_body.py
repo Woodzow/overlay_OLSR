@@ -50,7 +50,7 @@ def create_hello_body(hello_info):
         
         # 打包 Link Message Header
         # RFC 6.1: Link Code(1), Reserved(1), Link Message Size(2)
-        lm_header = struct.pack('!BBH', link_code, 0, link_msg_size)
+        lm_header = struct.pack('!BBH', link_code, 0, link_msg_size)#这里的link_code是一个整型，直接打包会自动转换
         
         # 打包所有 IP
         ips_bytes = b''
