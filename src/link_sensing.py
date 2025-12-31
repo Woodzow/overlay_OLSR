@@ -6,7 +6,8 @@ from create_link_code import create_link_code
 
 class LinkTuple: #此类主要用于判断邻居节点对称与否，以及过期与否
     def __init__(self, neighbor_ip):
-        self.neighbor_ip = neighbor_ip
+        #这个ip根据sender_ip传入，而sender_ip又是发送者ip，通过解析hello消息的msg_header可以获得，注意hello消息不转发，从而originator就是sender
+        self.neighbor_ip = neighbor_ip 
         self.l_asym_time = 0  # 异步过期时间戳 代表接收链路的有效期
         self.l_sym_time = 0   # 对称过期时间戳 代表双向握手成功的有效期
         self.l_time = 0       # 记录过期时间戳 (通常取上面两者的最大值 + 保持时间)
