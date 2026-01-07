@@ -22,7 +22,7 @@ class OLSRNode:
     def __init__(self, my_ip):
         self.my_ip = my_ip
         # === 初始化各个管理器 ===
-        self.link_set = LinkSet()               # 负责链路感知，linkset是没有参数传入的
+        self.link_set = LinkSet()               # 负责链路感知，linkset类是没有参数传入的
         self.link_set.my_ip = my_ip             # 确保 LinkSet 知道本机 IP
         
         self.neighbor_manager = NeighborManager(my_ip) # 负责邻居和2跳
@@ -35,11 +35,11 @@ class OLSRNode:
         current_time = time.time()
 
         # --- 1. 调度 LinkSet 处理链路 ---
-        # 使用的是LinkSet类中的处理hello消息的方法
+        # 调用的是LinkSet类中的处理hello消息的方法
         self.link_set.process_hello(sender_ip, hello_body)
         
         # 获取刚刚更新后的链路状态，传给下一个模块
-        # 注意：这里我们访问 link_set 内部的 links 字典
+        # 注意：这里我们访问 link_set 内部的 .links 字典,取出里面的值，也就是LinkTuple对象类
         link_tuple = self.link_set.links.get(sender_ip)
         is_link_sym = link_tuple.is_symmetric() if link_tuple else False
         
@@ -61,4 +61,4 @@ class OLSRNode:
         self.neighbor_manager.cleanup()
 
 
-if __name__ == "main":
+#if __name__ == "main":

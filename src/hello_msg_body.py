@@ -30,8 +30,6 @@ def create_hello_body(hello_info):
     neighbor_groups = hello_info.get("neighbor_groups", []) 
     #value = some_dict.get(key, default) #如果key在some_dict中，返回value，否则返回default
 
-    # ↓↓↓ 下面开始，原来的函数内部代码完全不用改 ↓↓↓
-    ...
 
     # 1. 固定头部 (4字节)
     # Reserved (2B) + Htime (1B) + Willingness (1B)

@@ -24,7 +24,7 @@ def start_sender(target_ip='<broadcast>', target_port=5005):
         # 2. 封装 Message Header (Type 1 = HELLO)
         msg_header = create_message_header(
             msg_type=1, vtime_seconds=6.0, msg_body_len=len(hello_body),
-            originator_ip="192.168.1.100", # 替换为你虚拟机的真实IP
+            originator_ip="192.168.1.1", # 替换为你虚拟机的真实IP
             ttl=1, hop_count=0, msg_seq_num=seq_num
         )
         

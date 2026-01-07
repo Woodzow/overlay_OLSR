@@ -29,13 +29,13 @@ class LinkSet:
         self.links = {}  # 格式: { '192.168.1.5': LinkTuple对象类, ... }，这里面保存邻居节点的ip信息，是否对称节点
         self.my_ip = "192.168.1.100" # 请替换为你的真实IP
 
-    def process_hello(self, sender_ip, hello_body):
+    def process_hello(self, sender_ip, hello_info):# 其中的hello_info就是hello_body解包以后的信息内容，本身是一个字典，这一部分打包解包在hello_msg_fmt文件里面
         """
         核心逻辑：根据收到的 HELLO 处理链路状态
         参考 RFC 3626 Section 7.1.1
         """
         current_time = time.time()
-        validity_time = hello_body['htime_seconds'] * 3 # 通常 Validity Time = 3 * Htime [cite: 1685, 1710] 对方存在有效时间限制，也就是对方只要存在，我们就认为他存在这个时间，每发一次hello就更新，认为会继续存在这么长时间，这也就是为什么收到hello就更新asym_time:收到说明肯定存在
+        validity_time = hello_info['htime_seconds'] * 3 # 通常 Validity Time = 3 * Htime [cite: 1685, 1710] 对方存在有效时间限制，也就是对方只要存在，我们就认为他存在这个时间，每发一次hello就更新，认为会继续存在这么长时间，这也就是为什么收到hello就更新asym_time:收到说明肯定存在
 
         # 1. 如果是新邻居，创建记录 [cite: 816-827]
         if sender_ip not in self.links:
@@ -53,7 +53,7 @@ class LinkSet:
         # 3. 检查对方是否听到了我 (链路是否对称?) [cite: 834-835]
         # 遍历 Hello 消息里的所有邻居组
         found_myself = False
-        for link_code, ip_list in hello_body['neighbor_groups']:#这里的邻居信息是发送hello消息一方的
+        for link_code, ip_list in hello_info['neighbor_groups']:#这里的邻居信息是发送hello消息一方的
             if self.my_ip in ip_list:#如果我在对方的邻居节点中，现在又收到了对方的hello消息
                 found_myself = True
                 # 检查对方标记的链路类型（最后两位的link_type）
@@ -79,7 +79,10 @@ class LinkSet:
             print(f"[LinkSet] 邻居 {ip} 已过期，删除记录。")
             del self.links[ip]
 
-# 基于链路状态生成hello消息的邻居相关内容
+# 基于链路状态生成hello消息的邻居相关内容，这里自己本身与哪些节点相连的初始化信息应该要么初始设定，要么应该从电台设备爬相关信息，当然后续也是需要从hello消息本身去更新过来
+"""
+这个部分后续还需要再考虑一下实际的情况来做出裁决
+"""
 def get_hello_groups(self):#传入的是linkset类的对象
         """
         根据当前 LinkSet 生成用于发送 HELLO 的 neighbor_groups

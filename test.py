@@ -1,3 +1,12 @@
 import time
+class student:
+    pass
 
-print(time.time())
+
+a = {}
+
+print(a)
+b = '192.168.1.1'
+a[b] = 'test'
+a['x='] = 'woodzow'
+print(a)

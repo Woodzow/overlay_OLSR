@@ -37,8 +37,8 @@ def decode_mantissa(encoded):
     """
     将 OLSR 8-bit 浮点格式解码为时间（秒）
 
-    encoded: 0–255 的整数
-    返回: 解码后的 seconds（float）
+    encoded: 0-255 的整数
+    返回: 解码后的 seconds(float)
     """
     if encoded <= 0:
         return 0.0
