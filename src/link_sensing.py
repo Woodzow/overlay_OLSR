@@ -79,17 +79,25 @@ class LinkSet:
             print(f"[LinkSet] 邻居 {ip} 已过期，删除记录。")
             del self.links[ip]
 
-# 基于链路状态生成hello消息的邻居相关内容，这里自己本身与哪些节点相连的初始化信息应该要么初始设定，要么应该从电台设备爬相关信息，当然后续也是需要从hello消息本身去更新过来
-"""
-这个部分后续还需要再考虑一下实际的情况来做出裁决
-"""
-def get_hello_groups(self):#传入的是linkset类的对象
+    # 基于链路状态生成hello消息的邻居相关内容，这里自己本身与哪些节点相连的初始化信息应该要么初始设定，要么应该从电台设备爬相关信息，当然后续也是需要从hello消息本身去更新过来
+    """
+    这个部分后续还需要再考虑一下实际的情况来做出裁决
+    """
+    def get_hello_groups(self, mpr_set=None):#传入的是linkset类的对象
         """
         根据当前 LinkSet 生成用于发送 HELLO 的 neighbor_groups
         参考 RFC 3626 Section 6.2
+        
+        生成 HELLO 消息的邻居组列表
+        :param mpr_set: 集合, 包含当前被选为 MPR 的邻居 IP
         """
-        sym_neighbors = []
-        asym_neighbors = []
+        if mpr_set is None:
+            mpr_set = set()
+        
+        # 分类容器
+        mpr_neighbors = []   # 类型 2: MPR_NEIGH
+        sym_neighbors = []   # 类型 1: SYM_NEIGH
+        asym_neighbors = []  # 类型 0: NOT_NEIGH (但链路是 ASYM)
         
         current_time = time.time()
         
@@ -98,22 +106,34 @@ def get_hello_groups(self):#传入的是linkset类的对象
             if link.l_time < current_time:
                 continue # 已过期忽略
             
+            # 1. 处理对称邻居 (Symmetric)
             if link.is_symmetric():
-                sym_neighbors.append(link.neighbor_ip)
+                # 【关键逻辑】如果该邻居在 MPR 集合中，标记为 MPR_NEIGH [cite: 948]
+                if link.neighbor_ip in mpr_set:
+                    mpr_neighbors.append(link.neighbor_ip)
+                else:
+                    sym_neighbors.append(link.neighbor_ip)
+            
+            # 2. 处理非对称邻居 (Asymmetric)
             elif link.is_asymmetric():
                 asym_neighbors.append(link.neighbor_ip)
         
         neighbor_groups = []
-        # 1. 对称邻居组 (Link Type = SYM_LINK, Neighbor Type = SYM_NEIGH)
+        # 组装 Group 1: MPR Neighbors (Link=SYM, Neighbor=MPR)
+        if mpr_neighbors:
+            # LinkType=2(SYM), NeighType=2(MPR) -> Code 10 (0x0A)
+            code = create_link_code(SYM_LINK, MPR_NEIGH)
+            neighbor_groups.append((code, mpr_neighbors))
+
+        # 组装 Group 2: Symmetric Neighbors (Link=SYM, Neighbor=SYM)
         if sym_neighbors:
-            # create_link_code 需要你自己引入之前定义的函数
-            code = create_link_code(2, 1) # SYM_LINK(2), SYM_NEIGH(1)
+            # LinkType=2(SYM), NeighType=1(SYM) -> Code 6 (0x06)
+            code = create_link_code(SYM_LINK, SYM_NEIGH)
             neighbor_groups.append((code, sym_neighbors))
             
-        # 2. 非对称邻居组 (Link Type = ASYM_LINK, Neighbor Type = NOT_NEIGH)
-        # 告诉对方：我听到了你，但还不知道你听到我没
+        # 组装 Group 3: Asymmetric Neighbors (Link=ASYM, Neighbor=NOT)
         if asym_neighbors:
-            code = create_link_code(1, 0) # ASYM_LINK(1), NOT_NEIGH(0)
+            code = create_link_code(ASYM_LINK, NOT_NEIGH)
             neighbor_groups.append((code, asym_neighbors))
             
         return neighbor_groups
