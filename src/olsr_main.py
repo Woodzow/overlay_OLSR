@@ -48,6 +48,9 @@ class OLSRNode:
         
         self.duplicate_set = DuplicateSet()
 
+        # ===【新增】初始化全局锁 ===
+        self.lock = threading.Lock()
+
         # --- 3. 状态变量 ---
         self.pkt_seq_num = 0    # 包序列号
         self.msg_seq_num = 0    # 消息序列号
@@ -87,50 +90,52 @@ class OLSRNode:
         pkt_len, pkt_seq = struct.unpack('!HH', data[:4])
         cursor = 4
         
+
         # 2. 遍历消息
-        while cursor < len(data):
-            if len(data) - cursor < 12: break
-            
-            # 解析消息头
-            msg_head = data[cursor:cursor+12]
-            msg_type, vtime, msg_size, orig_bytes, ttl, hop, msg_seq = \
-                struct.unpack('!BBH4sBBH', msg_head)
-            
-            orig_ip = socket.inet_ntoa(orig_bytes)
-            
-            # =================【修改点：解码 vtime】=================
-            validity_time = decode_mantissa(vtime)
-
-            # 提取消息体
-            body_start = cursor + 12
-            body_end = cursor + msg_size
-            if body_end > len(data): break
-            msg_body_bytes = data[body_start:body_end]
-            
-            # --- 去重检查 ---
-            if not self.duplicate_set.is_duplicate(orig_ip, msg_seq):
-                self.duplicate_set.record_message(orig_ip, msg_seq, time.time())
+        with self.lock:
+            while cursor < len(data):
+                if len(data) - cursor < 12: break
                 
-                # --- 分发处理 ---
-                if msg_type == HELLO_MESSAGE: # Type 1
-                    # 解析为字典 hello_info
-                    hello_info = parse_hello_body(msg_body_bytes)
-                    if hello_info:
-                        self.process_hello(sender_ip, hello_info, validity_time)
-                        
-                elif msg_type == TC_MESSAGE: # Type 2
-                    tc_info = parse_tc_body(msg_body_bytes)
-                    if tc_info:
-                        self.process_tc(orig_ip, tc_info, validity_time)
+                # 解析消息头
+                msg_head = data[cursor:cursor+12]
+                msg_type, vtime, msg_size, orig_bytes, ttl, hop, msg_seq = \
+                    struct.unpack('!BBH4sBBH', msg_head)
+                
+                orig_ip = socket.inet_ntoa(orig_bytes)
+                
+                # =================【修改点：解码 vtime】=================
+                validity_time = decode_mantissa(vtime)
 
-            # --- 转发检查 (MPR Flooding) ---
-            # 即使处理过内容，如果之前没转发过且我是MPR，仍需转发
-            if self.check_forwarding_condition(sender_ip, orig_ip, msg_seq, ttl):
-                # 传入完整的单条消息数据 (Header + Body) 进行转发处理
-                full_msg_data = data[cursor:body_end]
-                self.forward_message(full_msg_data, ttl, hop)
+                # 提取消息体
+                body_start = cursor + 12
+                body_end = cursor + msg_size
+                if body_end > len(data): break
+                msg_body_bytes = data[body_start:body_end]
+                
+                # --- 去重检查 ---
+                if not self.duplicate_set.is_duplicate(orig_ip, msg_seq):
+                    self.duplicate_set.record_message(orig_ip, msg_seq, time.time())
+                    
+                    # --- 分发处理 ---
+                    if msg_type == HELLO_MESSAGE: # Type 1
+                        # 解析为字典 hello_info
+                        hello_info = parse_hello_body(msg_body_bytes)
+                        if hello_info:
+                            self.process_hello(sender_ip, hello_info, validity_time)
+                            
+                    elif msg_type == TC_MESSAGE: # Type 2
+                        tc_info = parse_tc_body(msg_body_bytes)
+                        if tc_info:
+                            self.process_tc(orig_ip, tc_info, validity_time)
 
-            cursor += msg_size
+                # --- 转发检查 (MPR Flooding) ---
+                # 即使处理过内容，如果之前没转发过且我是MPR，仍需转发
+                if self.check_forwarding_condition(sender_ip, orig_ip, msg_seq, ttl):
+                    # 传入完整的单条消息数据 (Header + Body) 进行转发处理
+                    full_msg_data = data[cursor:body_end]
+                    self.forward_message(full_msg_data, ttl, hop)
+
+                cursor += msg_size
 
     # ==========================
     # 逻辑处理 (Logic Processing)
@@ -264,7 +269,9 @@ class OLSRNode:
     def loop_hello(self):
         while self.running:
             try:
-                self.generate_and_send_hello()
+                # 获取锁，保护 generate_and_send_hello 读取数据
+                with self.lock:
+                    self.generate_and_send_hello()
                 time.sleep(HELLO_INTERVAL - 0.5 + random.random())
             except Exception as e:
                 print(f"[Error] Hello Loop: {e}")
@@ -272,7 +279,8 @@ class OLSRNode:
     def loop_tc(self):
         while self.running:
             try:
-                self.generate_and_send_tc()
+                with self.lock:
+                    self.generate_and_send_tc()
                 time.sleep(TC_INTERVAL - 0.5 + random.random())
             except Exception as e:
                 print(f"[Error] TC Loop: {e}")
@@ -280,10 +288,13 @@ class OLSRNode:
     def loop_cleanup(self):
         while self.running:
             time.sleep(2.0)
-            self.link_set.cleanup()
-            self.neighbor_manager.cleanup()
-            self.topology_manager.cleanup()
-            self.duplicate_set.cleanup()
+            
+            # 获取锁，保护清理过程中的删除操作
+            with self.lock:
+                self.link_set.cleanup()
+                self.neighbor_manager.cleanup()
+                self.topology_manager.cleanup()
+                self.duplicate_set.cleanup()
 
 if __name__ == "__main__":
     import sys
