@@ -52,7 +52,7 @@ def parse_full_packet(data, addr):
         body_data = data[cursor+12 : cursor+m_size]
         
         # === 关键步骤：调用你的 hello_msg_body.py 进行解析 ===
-        if m_type == msg_type["HELLO_MESSAGE"]:
+        if m_type == HELLO_MESSAGE:
             print(f"      [Parsing HELLO Body...]")
             hello_info = parse_hello_body(body_data)
             

@@ -4,9 +4,9 @@ import time
 import struct
 
 # 导入你项目中的模块
-from constants import *
-from pkt_msg_fmt import create_packet_header, create_message_header, create_link_code
-from hello_msg_body import create_hello_body
+from src.constants import *
+from src.pkt_msg_fmt import create_packet_header, create_message_header, create_link_code
+from src.hello_msg_body import create_hello_body
 
 def run_sender_test(target_ip='<broadcast>', target_port=5005):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -46,7 +46,7 @@ def run_sender_test(target_ip='<broadcast>', target_port=5005):
     seq_num = 1
     
     msg_header = create_message_header(
-        msg_type=msg_type["HELLO_MESSAGE"], # 1
+        msg_type=HELLO_MESSAGE, # 1
         vtime_seconds=6.0,                  # 有效期
         msg_body_len=len(hello_body_bytes),
         originator_ip=my_ip,
