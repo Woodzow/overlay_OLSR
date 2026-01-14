@@ -22,13 +22,11 @@ DUP_HOLD_TIME    = 30                   # 重复消息记录（防止广播风�
 MID_HOLD_TIME    = 3 * MID_INTERVAL     # MID记录的有效期
 HNA_HOLD_TIME    = 3 * HNA_INTERVAL     # HNA记录的有效期
 
-msg_type = {
-    "HELLO_MESSAGE":1,
-    "TC_MESSAGE":2,
-    "MID_MESSAGE":3,
-    "HNA_MESSAGE":4
-}
-
+# msg_type 
+HELLO_MESSAGE = 1
+TC_MESSAGE    = 2
+MID_MESSAGE   = 3
+HNA_MESSAGE   = 4
 
 # Link Types
 UNSPEC_LINK = 0

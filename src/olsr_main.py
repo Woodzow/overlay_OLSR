@@ -2,157 +2,322 @@
 本文件为运行olsr应用层覆盖网络的主程序入口
 '''
 import time
-import networkx
-import heapq
 import socket
 import struct
+import threading  # 引入线程模块，用于处理周期性任务
+import random     # 用于Jitter
 
+# 引入各个模块
+from link_sensing import LinkSet
+from neigh_manager import NeighborManager
+from topology_manager import TopologyManager
+from routing_manager import RoutingManager
+from flooding_mpp import DuplicateSet
 
-import networkx as nx
-import matplotlib as plt
-
-from neigh_manager import NeighborTuple, TwoHopTuple, TopologyManager
+# 引入消息格式处理
+from pkt_msg_fmt import create_packet_header, create_message_header, encode_mantissa
+from hello_msg_body import create_hello_body, parse_hello_body
+from tc_msg_body import create_tc_body, parse_tc_body
 from constants import *
 
-# src/olsr_main.py
-from link_sensing import LinkSet  # 引入你写好的 LinkSet 类
-from neigh_manager import NeighborManager # 引入你写好的 NeighborManager 类
-from flooding_mpp import DuplicateSet  # 引入你写好的 DuplicateSet 类
-
-from tc_msg_body import create_tc_body, parse_tc_body
-from topology_manager import TopologyManager
-from pkt_msg_fmt import create_message_header
-
 class OLSRNode:
-    def __init__(self, my_ip):
+    def __init__(self, my_ip, port=698):
         self.my_ip = my_ip
-        # === 初始化各个管理器 ===
-        self.link_set = LinkSet()               # 负责链路感知，linkset类是没有参数传入的
-        self.link_set.my_ip = my_ip             # 确保 LinkSet 知道本机 IP
+        self.port = port
         
-        self.neighbor_manager = NeighborManager(my_ip) # 负责邻居和2跳
-        # self.topology_manager = ... (未来扩展)
-
-        self.duplicate_set = DuplicateSet()  # 新增
-        self.seq_number = 0 # 维护自己的发包序列号
-
+        # --- 1. 初始化网络接口 ---
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1) # 允许广播
+        self.sock.bind(('0.0.0.0', self.port))
+        
+        # --- 2. 初始化各个管理器 ---
+        self.link_set = LinkSet()
+        self.link_set.my_ip = my_ip
+        
+        self.neighbor_manager = NeighborManager(my_ip)
+        
         self.topology_manager = TopologyManager(my_ip)
-        self.ansn = 0 # 维护自己的 TC 序列号
-
-
-    def process_hello(self, sender_ip, hello_body):
-        """
-        总指挥：收到 HELLO 后，依次调度各个模块处理
-        """
-        current_time = time.time()
-
-        # --- 1. 调度 LinkSet 处理链路 ---
-        # 调用的是LinkSet类中的处理hello消息的方法
-        self.link_set.process_hello(sender_ip, hello_body)
         
-        # 获取刚刚更新后的链路状态，传给下一个模块
-        # 注意：这里我们访问 link_set 内部的 .links 字典,取出里面的值，也就是LinkTuple对象类
+        # 【新增】初始化路由管理器
+        self.routing_manager = RoutingManager(
+            my_ip, 
+            self.neighbor_manager, 
+            self.topology_manager
+        )
+        
+        self.duplicate_set = DuplicateSet()
+
+        # --- 3. 状态变量 ---
+        self.pkt_seq_num = 0    # 包序列号
+        self.msg_seq_num = 0    # 消息序列号
+        self.ansn = 0           # TC 序列号
+        self.running = True
+
+    # ==========================
+    # 核心功能 1: 数据包接收与分发
+    # ==========================
+    def start(self):
+        """启动主循环和辅助线程"""
+        print(f"[*] OLSR 节点 {self.my_ip} 启动，监听端口 {self.port}")
+        
+        # 启动周期性任务线程
+        threading.Thread(target=self.loop_hello, daemon=True).start()
+        threading.Thread(target=self.loop_tc, daemon=True).start()
+        threading.Thread(target=self.loop_cleanup, daemon=True).start()
+        
+        # 主线程负责接收 UDP 数据
+        self.receive_loop()
+
+    def receive_loop(self):
+        while self.running:
+            try:
+                data, addr = self.sock.recvfrom(2048)
+                sender_ip = addr[0]
+                # 忽略自己发出的包 (简单过滤)
+                if sender_ip == self.my_ip:
+                    continue
+                self.process_packet(data, sender_ip)
+            except Exception as e:
+                print(f"[Error] Receive Loop: {e}")
+
+    def process_packet(self, data, sender_ip):
+        """
+        解析 UDP 包，提取 Message，分发处理
+        """
+        if len(data) < 4: return
+        
+        # 1. 解析包头
+        pkt_len, pkt_seq = struct.unpack('!HH', data[:4])
+        cursor = 4
+        
+        # 2. 遍历包内所有消息
+        while cursor < len(data):
+            if len(data) - cursor < 12: break
+            
+            # 解析消息头
+            msg_header = data[cursor : cursor+12]
+            msg_type, vtime, msg_size, orig_ip_bytes, ttl, hop, msg_seq = \
+                struct.unpack('!BBH4sBBH', msg_header)
+            
+            originator_ip = socket.inet_ntoa(orig_ip_bytes)
+            
+            # 计算消息体位置
+            body_start = cursor + 12
+            body_end = cursor + msg_size
+            if body_end > len(data): break # 格式错误
+            
+            msg_body = data[body_start : body_end]
+            
+            # --- 处理去重 (Duplicate Check) ---
+            # 无论什么消息，先检查是否处理过
+            current_time = time.time()
+            is_dup = self.duplicate_set.is_duplicate(originator_ip, msg_seq)
+            if not is_dup:
+                self.duplicate_set.record_message(originator_ip, msg_seq, current_time)
+                
+                # --- 消息分发 (Dispatch) ---
+                if msg_type == HELLO_MESSAGE: # Type 1
+                    # 解析 HELLO Body
+                    hello_info = parse_hello_body(msg_body) 
+                    if hello_info:
+                        self.process_hello(sender_ip, hello_info)
+                        
+                elif msg_type == TC_MESSAGE: # Type 2
+                    # 解析 TC Body
+                    tc_info = parse_tc_body(msg_body)
+                    if tc_info:
+                        self.process_tc(originator_ip, tc_info)
+
+            # --- 转发检查 (Forwarding) ---
+            # 注意：即使处理过内容(is_dup=True)，也可能需要转发（如果之前没转发过）
+            # 这里简化逻辑：如果是重复的且已转发过，check_forwarding_condition 会返回 False
+            if self.check_forwarding_condition(sender_ip, originator_ip, msg_seq, ttl):
+                self.forward_message(data[cursor:body_end], ttl, hop)
+
+            # 移动指针
+            cursor += msg_size
+
+    # ==========================
+    # 核心功能 2: 消息处理逻辑
+    # ==========================
+    def process_hello(self, sender_ip, hello_info):
+        """处理收到的 HELLO 消息"""
+        current_time = time.time()
+        
+        # 1. 链路感知
+        self.link_set.process_hello(sender_ip, hello_info)
+        
+        # 获取链路状态
         link_tuple = self.link_set.links.get(sender_ip)
         is_link_sym = link_tuple.is_symmetric() if link_tuple else False
         
-        # --- 2. 调度 NeighborManager 更新 1跳邻居 ---
+        # 2. 更新邻居状态
         self.neighbor_manager.update_neighbor_status(
             neighbor_ip=sender_ip, 
-            willingness=hello_body['willingness'], 
+            willingness=hello_info['willingness'], 
             is_link_sym=is_link_sym
         )
-
-        # --- 3. 调度 NeighborManager 处理 2跳邻居 ---
-        # 只有当链路是对称的时候，才处理 2跳信息
+        
+        # 3. 如果是对称链路，进行高级处理
         if is_link_sym:
-            self.neighbor_manager.process_2hop_neighbors(sender_ip, hello_body, current_time)
-        # 【新增】检查我是否被选为 MPR
-            self.neighbor_manager.process_mpr_selector(sender_ip, hello_body, current_time)
+            self.neighbor_manager.process_2hop_neighbors(sender_ip, hello_info, current_time)
+            self.neighbor_manager.process_mpr_selector(sender_ip, hello_info, current_time)
             
-            # 【新增】触发 MPR 重算 (只有当邻居拓扑变化时才需要，但每收到包算一次比较简单)
+            # 触发 MPR 重算
             self.neighbor_manager.recalculate_mpr()
-    
-    def check_forwarding_condition(self, sender_ip, originator_ip, msg_seq_num, ttl):
-        """
-        判断是否需要转发这条消息
-        :param sender_ip: 上一跳是谁 (直连邻居 IP)
-        :param originator_ip: 消息最初是谁发的 (源 IP)
-        """
-        # 1. 基本检查
-        if ttl <= 1: 
-            return False # TTL 耗尽，不转发
-        if originator_ip == self.my_ip: 
-            return False # 我自己发的消息转了一圈回来了，不转发
+            
+            # 【关键】拓扑可能变了，重新计算路由表
+            self.routing_manager.recalculate_routing_table()
 
-        # 2. 去重检查 (RFC 3.4.1 Step 2)
-        # 如果已经在 Duplicate Set 里，且已经被标记为 retransmitted，则不转发
+    def process_tc(self, originator_ip, tc_info):
+        """处理收到的 TC 消息"""
+        current_time = time.time()
+        # 更新拓扑库
+        self.topology_manager.process_tc_message(originator_ip, tc_info, current_time)
+        
+        # 【关键】拓扑变了，重新计算路由表
+        self.routing_manager.recalculate_routing_table()
+
+    # ==========================
+    # 核心功能 3: 泛洪转发逻辑
+    # ==========================
+    def check_forwarding_condition(self, sender_ip, originator_ip, msg_seq_num, ttl):
+        """RFC 3.4.1: 判断是否转发"""
+        if ttl <= 1: return False
+        if originator_ip == self.my_ip: return False # 不转发自己发的
+        
+        # 去重检查
         if self.duplicate_set.is_duplicate(originator_ip, msg_seq_num):
             dup_entry = self.duplicate_set.entries[(originator_ip, msg_seq_num)]
             if dup_entry.retransmitted:
-                return False
+                return False # 已经转发过了
 
-        # 3. MPR 转发规则 (RFC 3.4.1 Step 4) 
-        # 只有当 "上一跳 (Sender)" 选我做了 MPR，我才帮忙转发
-        # 注意：这里查的是 MPR Selectors (谁选了我)，而不是我选了谁
-        is_selector = sender_ip in self.neighbor_manager.mpr_selectors
-        
-        if is_selector:
+        # MPR 规则: 只有当 Sender 选我做 MPR 时才转发
+        if sender_ip in self.neighbor_manager.mpr_selectors:
             return True
-        else:
-            return False
+        return False
 
-    def forward_message(self, raw_message_bytes):
-        """
-        执行实际的转发操作
-        1. TTL - 1
-        2. Hop Count + 1
-        3. 广播出去
-        """
-        # 这里需要对二进制数据进行修改 (TTL位置), 比较繁琐
-        # 建议先解包修改字段，再重新打包发送
-        # 或者直接操作 bytes 数组的特定偏移量 (Message Header 第 9 字节是 TTL)
-        pass
-    
+    def forward_message(self, raw_msg_bytes, old_ttl, old_hop):
+        """执行转发：修改 TTL 和 Hop Count"""
+        # 解包头部修改
+        header_fmt = '!BBH4sBBH'
+        header_len = 12
+        msg_header = list(struct.unpack(header_fmt, raw_msg_bytes[:header_len]))
+        
+        # 修改 TTL (-1) 和 Hop Count (+1)
+        msg_header[4] = old_ttl - 1
+        msg_header[5] = old_hop + 1
+        
+        # 重新打包
+        new_header = struct.pack(header_fmt, *msg_header)
+        new_msg = new_header + raw_msg_bytes[header_len:]
+        
+        # 封装进新的 UDP 包发送
+        self.send_packet(new_msg)
+        
+        # 提取 Originator 和 Seq 用于标记已转发
+        # (这里为了代码简洁，假设在外部已经获取了这些信息并标记)
+        # 实际代码中应该在这里解析并 self.duplicate_set.mark_retransmitted(...)
+
+    # ==========================
+    # 核心功能 4: 周期性发送
+    # ==========================
+    def loop_hello(self):
+        """周期发送 HELLO"""
+        while self.running:
+            try:
+                self.generate_and_send_hello()
+                # 添加 Jitter 防止同步冲突
+                time.sleep(HELLO_INTERVAL - 0.5 + random.random()) 
+            except Exception as e:
+                print(f"[Error] Hello Loop: {e}")
+
+    def loop_tc(self):
+        """周期发送 TC (仅当我是 MPR)"""
+        while self.running:
+            try:
+                self.generate_and_send_tc()
+                time.sleep(TC_INTERVAL - 0.5 + random.random())
+            except Exception as e:
+                print(f"[Error] TC Loop: {e}")
+
+    def loop_cleanup(self):
+        """周期清理过期数据"""
+        while self.running:
+            time.sleep(2.0) # 每2秒检查一次
+            self.link_set.cleanup()
+            self.neighbor_manager.cleanup()
+            self.topology_manager.cleanup()
+            self.duplicate_set.cleanup()
+
+    # ==========================
+    # 辅助函数
+    # ==========================
+    def generate_and_send_hello(self):
+        # 1. 获取邻居列表 (带 MPR 标记)
+        # 获取当前 MPR 集
+        current_mpr_set = self.neighbor_manager.current_mpr_set
+        groups = self.link_set.get_hello_groups(current_mpr_set)
+        
+        # 2. 构建 Hello Body
+        hello_body = create_hello_body(HELLO_INTERVAL, WILL_DEFAULT, groups)
+        
+        # 3. 构建 Message Header
+        msg_header = create_message_header(
+            msg_type=HELLO_MESSAGE, 
+            vtime_seconds=NEIGHB_HOLD_TIME, 
+            msg_body_len=len(hello_body),
+            originator_ip=self.my_ip, 
+            ttl=1, 
+            hop_count=0, 
+            msg_seq_num=self.get_next_msg_seq()
+        )
+        
+        # 4. 发送
+        self.send_packet(msg_header + hello_body)
+        print(f"[Send] HELLO sent. Neighbors: {len(groups)} groups")
 
     def generate_and_send_tc(self):
-        """
-        构建并发送 TC 消息 (仅当我是 MPR 时)
-        """
-        # 获取我的 MPR Selectors (谁选了我做中继)
-        # 注意：这需要你的 NeighborManager 有 mpr_selectors 属性
+        # 获取选我做 MPR 的邻居
         my_selectors = list(self.neighbor_manager.mpr_selectors.keys())
-        
-        if not my_selectors:
-            return # 如果没人选我，我就不发 TC (优化)
+        if not my_selectors: return 
 
-        # 更新序列号
         self.ansn = (self.ansn + 1) % 65535
-        
-        # 1. 构建 Body
         tc_body = create_tc_body(self.ansn, my_selectors)
         
-        # 2. 构建 Message Header (Type=2, TTL=255 全网泛洪)
         msg_header = create_message_header(
-            msg_type=2, 
-            vtime_seconds=15.0, 
+            msg_type=TC_MESSAGE, 
+            vtime_seconds=TOP_HOLD_TIME, 
             msg_body_len=len(tc_body),
             originator_ip=self.my_ip, 
             ttl=255, 
             hop_count=0, 
-            msg_seq_num=self.get_next_seq()
+            msg_seq_num=self.get_next_msg_seq()
         )
-        
-        # 3. 发送 (广播)
         self.send_packet(msg_header + tc_body)
+        print(f"[Send] TC sent. Selectors: {my_selectors}")
 
+    def send_packet(self, msg_bytes):
+        """封装 UDP 包头并发送广播"""
+        pkt_header = create_packet_header(len(msg_bytes), self.get_next_pkt_seq())
+        data = pkt_header + msg_bytes
+        self.sock.sendto(data, ('<broadcast>', self.port))
 
+    def get_next_msg_seq(self):
+        self.msg_seq_num = (self.msg_seq_num + 1) % 65535
+        return self.msg_seq_num
 
+    def get_next_pkt_seq(self):
+        self.pkt_seq_num = (self.pkt_seq_num + 1) % 65535
+        return self.pkt_seq_num
 
-
-    def cleanup(self):
-        """周期性清理任务"""
-        self.link_set.cleanup()
-        self.neighbor_manager.cleanup()
-
-
-#if __name__ == "main":
+# 启动入口
+if __name__ == "__main__":
+    import sys
+    my_ip = "192.168.1.100" # 默认测试IP，实际使用时应自动获取或传入
+    if len(sys.argv) > 1:
+        my_ip = sys.argv[1]
+        
+    node = OLSRNode(my_ip)
+    node.start()
