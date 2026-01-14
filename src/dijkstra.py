@@ -48,24 +48,24 @@ def draw_graph(graph, path=None): #绘制图的函数，输入为图和路径
         path_edges = list(zip(path, path[1:]))
         nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color='red', width=2.5)
     plt.show()
-if __name__ == "__main__":
-    graph = {
-        'uav1': [('uav2', 2), ('uav3', 5)],
-        'uav2': [('uav3', 3), ('uav4', 4)],
-        'uav3': [('uav4', 8)],
-        'uav4': [('uav5', 3)],
-        'uav5': []
-    }
-    src = 'uav1'
-    target = 'uav5'
-    dist, parent = dijkstra(graph, src)
-    path = reconstruct_path(parent, src, target)
-    print("Shortest distances from", src)
-    for node in sorted(graph):
-        print(f"  {node}: {dist[node]}")
-    if path:
-        print(f"\nShortest path {src} -> {target}: {' -> '.join(path)} (cost {dist[target]})")
-    else:
-        print(f"No path from {src} to {target}")
-    # Draw the graph and highlight shortest path
-    draw_graph(graph, path)
+# if __name__ == "__main__":
+#     graph = {
+#         'uav1': [('uav2', 2), ('uav3', 5)],
+#         'uav2': [('uav3', 3), ('uav4', 4)],
+#         'uav3': [('uav4', 8)],
+#         'uav4': [('uav5', 3)],
+#         'uav5': []
+#     }
+#     src = 'uav1'
+#     target = 'uav5'
+#     dist, parent = dijkstra(graph, src)
+#     path = reconstruct_path(parent, src, target)
+#     print("Shortest distances from", src)
+#     for node in sorted(graph):
+#         print(f"  {node}: {dist[node]}")
+#     if path:
+#         print(f"\nShortest path {src} -> {target}: {' -> '.join(path)} (cost {dist[target]})")
+#     else:
+#         print(f"No path from {src} to {target}")
+#     # Draw the graph and highlight shortest path
+#     draw_graph(graph, path)
