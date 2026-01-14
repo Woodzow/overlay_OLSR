@@ -29,13 +29,14 @@ class LinkSet:
         self.links = {}  # 格式: { '192.168.1.5': LinkTuple对象类, ... }，这里面保存邻居节点的ip信息，是否对称节点
         self.my_ip = "192.168.1.100" # 请替换为你的真实IP
 
-    def process_hello(self, sender_ip, hello_info):# 其中的hello_info就是hello_body解包以后的信息内容，本身是一个字典，这一部分打包解包在hello_msg_fmt文件里面
+    def process_hello(self, sender_ip, hello_info, validity_time):# 其中的hello_info就是hello_body解包以后的信息内容，本身是一个字典，这一部分打包解包在hello_msg_fmt文件里面
         """
         核心逻辑：根据收到的 HELLO 处理链路状态
         参考 RFC 3626 Section 7.1.1
         """
         current_time = time.time()
-        validity_time = hello_info['htime_seconds'] * 3 # 通常 Validity Time = 3 * Htime [cite: 1685, 1710] 对方存在有效时间限制，也就是对方只要存在，我们就认为他存在这个时间，每发一次hello就更新，认为会继续存在这么长时间，这也就是为什么收到hello就更新asym_time:收到说明肯定存在
+        # validity_time = hello_info['htime_seconds'] * 3  这里不再使用固定值 而是传入
+        # 通常 Validity Time = 3 * Htime [cite: 1685, 1710] 对方存在有效时间限制，也就是对方只要存在，我们就认为他存在这个时间，每发一次hello就更新，认为会继续存在这么长时间，这也就是为什么收到hello就更新asym_time:收到说明肯定存在
 
         # 1. 如果是新邻居，创建记录 [cite: 816-827]
         if sender_ip not in self.links:
@@ -68,7 +69,7 @@ class LinkSet:
         # 4. 更新记录总过期时间 L_time [cite: 848-850]
         #为什么还要在二者基础上加上保持时间？
         #这个过期后的时间内方便广播该节点已死的信息，不然的话直接被删除，就会认为是隐形的，就不能广播节点消失的信息
-        link.l_time = max(link.l_sym_time, link.l_asym_time) + NEIGHB_HOLD_TIME
+        link.l_time = max(link.l_sym_time, link.l_asym_time)
 
     def cleanup(self):
         """定期清理过期邻居"""

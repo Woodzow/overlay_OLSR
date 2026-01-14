@@ -59,12 +59,11 @@ class NeighborManager:
             
         print(f"[NeighborSet] 更新邻居 {neighbor_ip}: Status={neigh.status}, Will={neigh.willingness}")
 
-    def process_2hop_neighbors(self, sender_ip, hello_info, current_time):
+    def process_2hop_neighbors(self, sender_ip, hello_info, validity_time, current_time):
         """
         处理 HELLO 消息(中的neighbor_groups)以更新 2跳邻居集
         """
-        validity_time = hello_info['htime_seconds'] * 3
-        
+        # validity_time = hello_info['htime_seconds'] * 3  这里不再使用固定值 而是传入
         for link_code, ip_list in hello_info['neighbor_groups']:
             # 解析 Link Code (Bit 2-3 是 Neighbor Type)
             neigh_type = (link_code >> 2) & 0x03
@@ -163,12 +162,12 @@ class NeighborManager:
     
     
     # 处理MPR selector更新
-    def process_mpr_selector(self, sender_ip, hello_info, current_time):
+    def process_mpr_selector(self, sender_ip, hello_info, validity_time, current_time):
         """
         检查收到的 HELLO 包，看对方是否选我做了 MPR
         参考 RFC 3626 Section 8.4.1
         """
-        validity_time = hello_info['htime_seconds'] * 3
+        # validity_time = hello_info['htime_seconds'] * 3  这里不再使用固定值 而是传入
         am_i_selected = False
 
         # 遍历 HELLO 中的每一个邻居组

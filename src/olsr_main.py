@@ -15,7 +15,7 @@ from routing_manager import RoutingManager
 from flooding_mpp import DuplicateSet
 
 # --- 引入消息格式处理 ---
-from pkt_msg_fmt import create_packet_header, create_message_header
+from pkt_msg_fmt import create_packet_header, create_message_header, decode_mantissa
 from hello_msg_body import create_hello_body, parse_hello_body
 from tc_msg_body import create_tc_body, parse_tc_body
 from constants import *
@@ -98,6 +98,9 @@ class OLSRNode:
             
             orig_ip = socket.inet_ntoa(orig_bytes)
             
+            # =================【修改点：解码 vtime】=================
+            validity_time = decode_mantissa(vtime)
+
             # 提取消息体
             body_start = cursor + 12
             body_end = cursor + msg_size
@@ -113,12 +116,12 @@ class OLSRNode:
                     # 解析为字典 hello_info
                     hello_info = parse_hello_body(msg_body_bytes)
                     if hello_info:
-                        self.process_hello(sender_ip, hello_info)
+                        self.process_hello(sender_ip, hello_info, validity_time)
                         
                 elif msg_type == TC_MESSAGE: # Type 2
                     tc_info = parse_tc_body(msg_body_bytes)
                     if tc_info:
-                        self.process_tc(orig_ip, tc_info)
+                        self.process_tc(orig_ip, tc_info, validity_time)
 
             # --- 转发检查 (MPR Flooding) ---
             # 即使处理过内容，如果之前没转发过且我是MPR，仍需转发

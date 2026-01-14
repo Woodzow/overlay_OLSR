@@ -31,6 +31,27 @@ class RoutingManager:
                 # 确保邻居也在 graph 键中，防止 KeyError
                 if neigh_ip not in graph:
                     graph[neigh_ip] = []
+        
+
+        # =================【新增部分开始】=================
+        # 1.4 (新增) 添加二跳邻居信息 (Neighbor -> 2-Hop Node)
+        # 来源: NeighborManager (通过 HELLO 消息获得)
+        # 只有当中间节点是我们的对称邻居时，这条路径才有效
+        sym_neighbors = [ip for ip, n in self.neighbor_manager.neighbors.items() if n.status == 1]
+        
+        for (neigh_ip, two_hop_ip), two_hop_tuple in self.neighbor_manager.two_hop_set.items():
+            # 只有通过对称邻居到达的二跳才算数
+            if neigh_ip in sym_neighbors:
+                # 确保节点在图中初始化
+                if neigh_ip not in graph: graph[neigh_ip] = []
+                if two_hop_ip not in graph: graph[two_hop_ip] = []
+                
+                # 添加边: Neighbor -> 2-Hop (权重 1)
+                # 检查是否已存在边，避免重复添加
+                if (two_hop_ip, 1.0) not in graph[neigh_ip]:
+                    graph[neigh_ip].append((two_hop_ip, 1.0))
+        # =================【新增部分结束】=================
+
 
         # 1.3 添加全局拓扑链路 (Last_IP -> Dest_IP)
         # 来源: TopologyManager
