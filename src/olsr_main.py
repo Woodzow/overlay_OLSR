@@ -21,7 +21,7 @@ from tc_msg_body import create_tc_body, parse_tc_body
 from constants import *
 
 class OLSRNode:
-    def __init__(self, my_ip, port=698):
+    def __init__(self, my_ip, port=5005):
         self.my_ip = my_ip
         self.port = port
         self.running = True
