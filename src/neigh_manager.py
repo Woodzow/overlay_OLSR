@@ -17,7 +17,7 @@ class TwoHopTuple:
     def __init__(self, neighbor_main_addr, two_hop_addr):
         self.neighbor_main_addr = neighbor_main_addr  # 中间跳邻居
         self.two_hop_addr = two_hop_addr              # 二跳邻居
-        self.expiration_time = 0                      # 过期时间？
+        self.expiration_time = 0                      # 过期时间
 
 # 被选为mpr节点的备选者视角的对象类 
 class MPRSelectorTuple:

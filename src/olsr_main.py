@@ -101,7 +101,7 @@ class OLSRNode:
                 msg_type, vtime, msg_size, orig_bytes, ttl, hop, msg_seq = \
                     struct.unpack('!BBH4sBBH', msg_head)
                 
-                orig_ip = socket.inet_ntoa(orig_bytes)
+                orig_ip = socket.inet_ntoa(orig_bytes) #将字节流的发送者ip转换为字符串形式，这里便是直接获取我自己有哪些可以收到hello消息邻居的
                 
                 # =================【修改点：解码 vtime】=================
                 validity_time = decode_mantissa(vtime)
@@ -140,12 +140,12 @@ class OLSRNode:
     # ==========================
     # 逻辑处理 (Logic Processing)
     # ==========================
-    def process_hello(self, sender_ip, hello_info):
+    def process_hello(self, sender_ip, hello_info, validity_time):
         """处理 HELLO 消息字典"""
         current_time = time.time()
         
         # 1. 链路感知
-        self.link_set.process_hello(sender_ip, hello_info)
+        self.link_set.process_hello(sender_ip, hello_info, validity_time)
         
         link = self.link_set.links.get(sender_ip)
         is_sym = link.is_symmetric() if link else False
@@ -157,17 +157,17 @@ class OLSRNode:
         
         if is_sym:
             # 3. 二跳与 MPR Selector
-            self.neighbor_manager.process_2hop_neighbors(sender_ip, hello_info, current_time)
-            self.neighbor_manager.process_mpr_selector(sender_ip, hello_info, current_time)
+            self.neighbor_manager.process_2hop_neighbors(sender_ip, hello_info, validity_time, current_time)
+            self.neighbor_manager.process_mpr_selector(sender_ip, hello_info, validity_time, current_time)
             
             # 4. 触发重算
             self.neighbor_manager.recalculate_mpr()
             # 拓扑变动，重算路由
             self.routing_manager.recalculate_routing_table()
 
-    def process_tc(self, originator_ip, tc_info):
+    def process_tc(self, originator_ip, tc_info, validity_time):
         """处理 TC 消息字典"""
-        self.topology_manager.process_tc_message(originator_ip, tc_info, time.time())
+        self.topology_manager.process_tc_message(originator_ip, tc_info, validity_time, time.time())
         # 拓扑变动，重算路由
         self.routing_manager.recalculate_routing_table()
 
@@ -181,7 +181,7 @@ class OLSRNode:
         groups = self.link_set.get_hello_groups(mpr_set)
         
         # 2. 构建消息体字典
-        # 【修正点】: 构造 hello_info 字典，而不是传散参数
+        # 构造 hello_info 字典，而不是传散参数
         hello_info = {
             "htime_seconds": HELLO_INTERVAL,
             "willingness": WILL_DEFAULT,

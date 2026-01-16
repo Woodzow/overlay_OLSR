@@ -6,6 +6,8 @@ D_seq_num: 消息序列号 (Message Sequence Number)。
 D_retransmitted: 布尔值，标记这条消息我是否已经转发过。
 D_time: 过期时间
 """
+# 这个模块实现了用于跟踪已接收消息的重复检测机制，防止消息的重复处理和转发。主要的两个类也就是命名为duplicate
+
 
 import time
 from constants import DUP_HOLD_TIME # 通常是 30秒

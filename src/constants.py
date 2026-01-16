@@ -27,6 +27,7 @@ HELLO_MESSAGE = 1
 TC_MESSAGE    = 2
 MID_MESSAGE   = 3
 HNA_MESSAGE   = 4
+DATA_MESSAGE  = 5  # 新增数据消息类型
 
 # Link Types
 UNSPEC_LINK = 0
