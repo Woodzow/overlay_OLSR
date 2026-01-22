@@ -103,39 +103,44 @@ class OLSRNode:
                 
                 orig_ip = socket.inet_ntoa(orig_bytes) #将字节流的发送者ip转换为字符串形式，这里便是直接获取我自己有哪些可以收到hello消息邻居的
                 
-                # =================【修改点：解码 vtime】=================
-                validity_time = decode_mantissa(vtime)
+                if msg_type == DATA_MESSAGE:
+                    # 这是一个数据包，交给专门的函数处理
+                    # msg_body_bytes 包含了 [目的IP] + [视频数据]
+                    self.process_data_message(orig_ip, msg_body_bytes, ttl)
+                elif msg_type in [HELLO_MESSAGE, TC_MESSAGE]:
+                    # =================【解码 vtime】=================
+                    validity_time = decode_mantissa(vtime)
 
-                # 提取消息体
-                body_start = cursor + 12
-                body_end = cursor + msg_size
-                if body_end > len(data): break
-                msg_body_bytes = data[body_start:body_end]
-                
-                # --- 去重检查 ---
-                if not self.duplicate_set.is_duplicate(orig_ip, msg_seq):
-                    self.duplicate_set.record_message(orig_ip, msg_seq, time.time())
+                    # 提取消息体
+                    body_start = cursor + 12
+                    body_end = cursor + msg_size
+                    if body_end > len(data): break
+                    msg_body_bytes = data[body_start:body_end]
                     
-                    # --- 分发处理 ---
-                    if msg_type == HELLO_MESSAGE: # Type 1
-                        # 解析为字典 hello_info
-                        hello_info = parse_hello_body(msg_body_bytes)
-                        if hello_info:
-                            self.process_hello(sender_ip, hello_info, validity_time)
-                            
-                    elif msg_type == TC_MESSAGE: # Type 2
-                        tc_info = parse_tc_body(msg_body_bytes)
-                        if tc_info:
-                            self.process_tc(orig_ip, tc_info, validity_time)
+                    # --- 去重检查 ---
+                    if not self.duplicate_set.is_duplicate(orig_ip, msg_seq):
+                        self.duplicate_set.record_message(orig_ip, msg_seq, time.time())
+                        
+                        # --- 分发处理 ---
+                        if msg_type == HELLO_MESSAGE: # Type 1
+                            # 解析为字典 hello_info
+                            hello_info = parse_hello_body(msg_body_bytes)
+                            if hello_info:
+                                self.process_hello(sender_ip, hello_info, validity_time)
+                                
+                        elif msg_type == TC_MESSAGE: # Type 2
+                            tc_info = parse_tc_body(msg_body_bytes)
+                            if tc_info:
+                                self.process_tc(orig_ip, tc_info, validity_time)
 
-                # --- 转发检查 (MPR Flooding) ---
-                # 即使处理过内容，如果之前没转发过且我是MPR，仍需转发
-                if self.check_forwarding_condition(sender_ip, orig_ip, msg_seq, ttl):
-                    # 传入完整的单条消息数据 (Header + Body) 进行转发处理
-                    full_msg_data = data[cursor:body_end]
-                    self.forward_message(full_msg_data, ttl, hop)
+                    # --- 转发检查 (MPR Flooding) ---
+                    # 即使处理过内容，如果之前没转发过且我是MPR，仍需转发
+                    if self.check_forwarding_condition(sender_ip, orig_ip, msg_seq, ttl):
+                        # 传入完整的单条消息数据 (Header + Body) 进行转发处理
+                        full_msg_data = data[cursor:body_end]
+                        self.forward_message(full_msg_data, ttl, hop)
 
-                cursor += msg_size
+                    cursor += msg_size
 
     # ==========================
     # 逻辑处理 (Logic Processing)
@@ -296,9 +301,52 @@ class OLSRNode:
                 self.topology_manager.cleanup()
                 self.duplicate_set.cleanup()
 
+    #处理数据包相关的方法函数
+    def process_data_message(self, originator_ip, body_bytes, ttl):
+        """
+        处理收到的数据包 (Type 5)
+        """
+        if len(body_bytes) < 4: return 
+
+        # 1. 解析自定义的 Body 头部：提取目标 IP
+        dest_ip_bytes = body_bytes[:4]
+        dest_ip = socket.inet_ntoa(dest_ip_bytes)
+        payload = body_bytes[4:] # 剩下的才是视频数据
+
+        # 2. 判断：是发给我的吗？
+        if dest_ip == self.my_ip:
+            print(f"[Data] 收到来自 {originator_ip} 的视频数据! 长度: {len(payload)}")
+            # TODO: 将 payload 放入视频显示队列
+            # self.video_queue.put(payload)
+            return
+
+        # 3. 如果不是发给我的，且 TTL > 0，则进行“单播转发”
+        if ttl > 1:
+            self.forward_unicast_data(dest_ip, body_bytes, ttl)
+
+    def forward_unicast_data(self, dest_ip, full_body, old_ttl):
+        """
+        查路由表进行单播转发
+        """
+        # 查路由表：去 dest_ip 该给谁？
+        route = self.routing_manager.routing_table.get(dest_ip)
+        
+        if route:
+            next_hop = route['next_hop']
+            
+            # 重新封装头部（仅修改 TTL 和 Hop）
+            # 注意：这里需要重新构建 Message Header，或者像之前 forward_message 那样修改二进制
+            # 简单起见，我们假设重新打包转发：
+            
+            # ... (这里调用 send_packet 发给 next_hop) ...
+            print(f"[Forward] 数据包 {dest_ip} -> 下一跳 {next_hop}")
+        else:
+            print(f"[Drop] 丢弃发往 {dest_ip} 的数据：无路由")
+    
+
 if __name__ == "__main__":
     import sys
-    ip = "192.168.3.5"
+    ip = "192.168.3.2"
     if len(sys.argv) > 1: ip = sys.argv[1]
     node = OLSRNode(ip)
     node.start()

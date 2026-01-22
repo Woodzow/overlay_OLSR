@@ -78,7 +78,7 @@ class TopologyManager:
         # T_last_addr = TC 的 Originator
         # validity_time = TOP_HOLD_TIME # 应该从 Message Header 的 Vtime 获取，这里简化使用常量
         
-        for neighbor_ip in tc_body['advertised_neighbors']:
+        for neighbor_ip in tc_body['advertise.d_neighbors']:
             key = (neighbor_ip, originator_ip)
             
             if key not in self.topology_set:
