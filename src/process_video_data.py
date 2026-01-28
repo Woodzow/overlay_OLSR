@@ -15,7 +15,7 @@ def send_video_udp(file_path, dest_ip, dest_port):
         return
 
     file_size = os.path.getsize(file_path)
-    print(f"开始发送文件: {file_path} ({file_size / 1024 / 1024:.2f} MB)")
+    print(f"开始发送文件: {file_path} ({file_size / 1024 / 1024:.2f} MB)")                                                                         
     print(f"目标: {dest_ip}:{dest_port}")
 
     # 定义缓冲区大小 (Buffer Size)
